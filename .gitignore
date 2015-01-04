@@ -8,3 +8,15 @@ table.py
 .DS_Store
 
 reference/hardware/v0.2/~$schematic v0.2_bom.xlsx
+/Release/
+
+arduino/
+
+spec.d
+
+.cproject
+.project
+
+.settings
+
+.ino.cpp

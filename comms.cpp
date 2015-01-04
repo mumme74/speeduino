@@ -3,6 +3,9 @@ This is called when a command is received over serial from TunerStudio / Megatun
 It parses the command and calls the relevant function
 A detailed description of each call can be found at: http://www.msextra.com/doc/ms1extra/COM_RS232.htm
 */
+#include "comms.h"
+#include "table.h"
+
 void command()
 {
   switch (Serial.read()) 
@@ -107,11 +110,13 @@ void command()
 /*
 This function returns the current values of a fixed group of variables
 */
+
+
 void sendValues(int length)
 {
   byte packetSize = 28;
   byte response[packetSize];
-  
+
   response[0] = currentStatus.secl; //secl is simply a counter that increments each second. Used to track unexpected resets (Which will reset this count to 0)
   response[1] = currentStatus.squirt; //Squirt Bitfield
   response[2] = currentStatus.engine; //Engine Status Bitfield
@@ -399,6 +404,8 @@ Send 256 tooth log entries
 */
 void sendToothLog(bool useChar)
 {
+      extern volatile int toothHistory[];
+      extern volatile int toothHistoryIndex;
 
       //We need 256 records to send to TunerStudio. If there aren't that many in the buffer (Buffer is 512 long) then we just return and wait for the next call
       if (toothHistoryIndex < 256) { return; } //Don't believe this is the best way to go. Just display whatever is in the buffer

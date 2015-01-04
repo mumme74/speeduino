@@ -5,6 +5,7 @@
 //The following lines are configurable, but the defaults are probably pretty good for most applications
 //#define engineInjectorDeadTime 2500 //Time in uS that the injector takes to open minus the time it takes to close
 #define engineSquirtsPerCycle 2 //Would be 1 for a 2 stroke
+#include "Arduino.h"
 
 //**************************************************************************************************
 
@@ -19,7 +20,9 @@
 #include "corrections.h"
 #include "timers.h"
 
-#include "fastAnalog.h"
+#include <EEPROM.h>
+
+//#include "fastAnalog.h"
 #define DIGITALIO_NO_MIX_ANALOGWRITE
 #include "digitalIOPerformance.h"
 

@@ -1,11 +1,13 @@
-
+#include "corrections.h"
+#include "table.h"
+#include "globals.h"
 
 byte correctionsTotal()
 {
   int sumCorrections = 100;
-  //sumCorrections = div((sumCorrections * correctionWUE()), 100).quot;
+  sumCorrections = div((sumCorrections * correctionWUE()), 100).quot;
   sumCorrections = div((sumCorrections * correctionASE()), 100).quot;
-  //sumCorrections = div((sumCorrections * correctionAccel()), 100).quot;
+  sumCorrections = div((sumCorrections * correctionAccel()), 100).quot;
   sumCorrections = div((sumCorrections * correctionFloodClear()), 100).quot;
   return (byte)sumCorrections;
 }
@@ -13,7 +15,13 @@ byte correctionsTotal()
 byte correctionWUE()
 {
   //Possibly reduce the frequency this runs at (Costs about 50 loops per second)
-  return 100 + table2D_getValue(WUETable, currentStatus.coolant);
+  static int stored = 100 + table2D_getValue(WUETable, currentStatus.coolant);
+  static int cnt = 0;
+  if ((++cnt) > 50) {
+	  cnt = 0;
+	  stored = 100 + table2D_getValue(WUETable, currentStatus.coolant);
+  }
+  return stored;
 }
 
 byte correctionASE()
