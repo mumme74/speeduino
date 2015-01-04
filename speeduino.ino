@@ -496,7 +496,7 @@ void endCoil4Charge() { digitalWrite(pinCoil4, coilLOW); }
 
 //The trigger function is called everytime a crank tooth passes the sensor
 volatile unsigned long curTime;
-volatile int curGap;
+volatile unsigned int curGap;
 volatile unsigned int targetGap; 
 void trigger()
   {
