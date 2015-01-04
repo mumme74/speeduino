@@ -1,4 +1,5 @@
-
+#ifndef TIMERS_H
+#define TIMERS_H
 
 /*
 NOTE - This file and it's associated functions need a CLEARER NAME
@@ -23,4 +24,5 @@ volatile int loopSec;
 
 void initialiseTimers();
 
+#endif // TIMERS_H
 

@@ -1,6 +1,9 @@
 /*
 These are some utility functions and variables used through the main code
 */ 
+#ifndef UTILS_H
+#define UTILS_H
+
 #include <Arduino.h>
 #define MS_IN_MINUTE 60000
 #define US_IN_MINUTE 60000000
@@ -70,3 +73,5 @@ unsigned int PW_AN(int REQ_FUEL, byte VE, byte TPS, int corrections, int injOpen
   //return PW(REQ_FUEL, VE, 100, corrections, injOpen, TPS); //Just use 1 in place of the MAP
   return PW(REQ_FUEL, VE, 100, corrections, injOpen, 100); //Just use 1 in place of the MAP
 }
+
+#endif // UTILS_H

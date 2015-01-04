@@ -1,3 +1,6 @@
+#ifndef GLOBALS_H
+#define GLOBALS_H
+
 #include <Arduino.h>
 
 const byte ms_version = 20;
@@ -225,3 +228,16 @@ struct config2 {
 #define pinCLT A3 //CLS sensor pin
 #define pinO2 A4 //O2 Sensor pin
 */
+
+// declared in speeduino.ino
+extern struct statuses currentStatus;
+extern struct config1 configPage1;
+extern struct config2 configPage2;
+extern unsigned long previousLoopTime;
+extern unsigned long currentLoopTime;
+
+
+
+
+#endif // GLOBALS_H
+

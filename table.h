@@ -1,7 +1,11 @@
 /*
 This file is used for everything related to maps/tables including their definition, functions etc
 */
+#ifndef TABLE_H
+#define TABLE_H
+
 #include <Arduino.h>
+#include "globals.h"
 
 /*
 The 2D table can contain either 8-bit (byte) or 16-bit (int) values
@@ -46,3 +50,16 @@ Eg: 2x2 table
 */
 int get3DTableValue(struct table3D, int, int);
 int table2D_getValue(struct table2D, int);
+
+// declared in speeduino.ino
+extern struct table3D fuelTable; //8x8 fuel map
+extern struct table3D ignitionTable; //8x8 ignition map
+extern struct table2D taeTable; //4 bin TPS Acceleration Enrichment map (2D)
+extern struct table2D WUETable; //10 bin Warm Up Enrichment map (2D)
+
+extern byte cltCalibrationTable[CALIBRATION_TABLE_SIZE];
+extern byte iatCalibrationTable[CALIBRATION_TABLE_SIZE];
+extern byte o2CalibrationTable[CALIBRATION_TABLE_SIZE];
+
+#endif // TABLE_H
+
