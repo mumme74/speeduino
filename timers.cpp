@@ -4,9 +4,44 @@ They should not be confused with Schedulers, which are for performing an action 
 
 Timers are typically low resolution (Compared to Schedulers), with maximum frequency currently being approximately every 10ms
 */
+#include "timers.h"
+#include "globals.h"
 
+#if  defined( __MK20DX128__ ) || defined ( __MK20DX256__ )
+
+
+void runEverySecond()
+{
+	 //**************************************************************************************************************************************************
+	    //This updates the runSecs variable
+	    //If the engine is running or cranking, we need ot update the run time counter.
+	    if (BIT_CHECK(currentStatus.engine, BIT_ENGINE_RUN))
+	    { //NOTE - There is a potential for a ~1sec gap between engine crank starting and ths runSec number being incremented. This may delay ASE!
+	      if (currentStatus.runSecs <= 254) //Ensure we cap out at 255 and don't overflow. (which would reset ASE)
+	        { currentStatus.runSecs++; } //Increment our run counter by 1 second.
+	    }
+	    //**************************************************************************************************************************************************
+	    //This records the number of main loops the system has completed in the last second
+	    currentStatus.loopsPerSecond = mainLoopCount;
+	    mainLoopCount = 0;
+	    //**************************************************************************************************************************************************
+	    //increament secl (secl is simply a counter that increments every second and is used to track whether the system has unexpectedly reset
+	    currentStatus.secl++;
+}
+
+void initialiseTimers()
+{
+	static IntervalTimer timer;
+	timer.priority(255); // this is low priority
+	if (!timer.begin(runEverySecond, 1000000))
+		Serial.println("Couldnt start 1sec timer");
+
+}
+
+#else // ordinary AVR arduino mega
 void initialiseTimers() 
 {  
+
    //Configure Timer2 for our low-freq interrupt code.
    TCCR2B = 0x00;          //Disbale Timer2 while we set it up
    TCNT2  = 99;           //Preload timer2 with 100 cycles, leaving 156 till overflow.
@@ -62,3 +97,4 @@ ISR(TIMER2_OVF_vect)
     TIFR2  = 0x00;          //Timer2 INT Flag Reg: Clear Timer Overflow Flag
   
 }
+#endif
