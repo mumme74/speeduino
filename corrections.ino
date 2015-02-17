@@ -97,21 +97,17 @@ byte correctionAccel()
       return 100;
     }
     //Enrichment still needs to keep running. Simply return the total TAE amount
-    return currentStatus.TAEamount; 
+    return 100 + currentStatus.TAEamount; 
   }
   
-  //Check for deceleration (Deceleration adjustment not yet supported)
-  if (currentStatus.TPS < currentStatus.TPSlast) { return 100; }
-  
   //If TAE isn't currently turned on, need to check whether it needs to be turned on
-  int rateOfChange = ldiv(1000000, (currentStatus.TPS_time - currentStatus.TPSlast_time)).quot * (currentStatus.TPS - currentStatus.TPSlast); //This is the % per second that the TPS has moved
-  //currentStatus.tpsDOT = divs10(rateOfChange); //The TAE bins are divided by 10 in order to allow them to be stored in a byte. 
-  currentStatus.tpsDOT = rateOfChange / 10;
+  int rateOfChange = ldiv(1000000, (currentLoopTime - previousLoopTime)).quot * (currentStatus.TPS - currentStatus.TPSlast); //This is the % per second that the TPS has moved
+  currentStatus.tpsDOT = divs10(rateOfChange); //The TAE bins are divided by 10 in order to allow them to be stored in a byte. 
   
-  if (rateOfChange > configPage1.tpsThresh)
+  if (currentStatus.tpsDOT > (configPage1.tpsThresh * 10))
   {
     BIT_SET(currentStatus.engine, BIT_ENGINE_ACC); //Mark accleration enrichment as active.
-    currentStatus.TAEEndTime = micros() + ((unsigned long)configPage1.taeTime * 10000); //Set the time in the future where the enrichment will be turned off. taeTime is stored as mS / 10, so multiply it by 100 to get it in uS
+    currentStatus.TAEEndTime = micros() + (configPage1.taeTime * 100); //Set the time in the future where the enrichment will be turned off. taeTime is stored as mS * 10, so multiply it by 100 to get it in uS
     return 100 + table2D_getValue(taeTable, currentStatus.tpsDOT);
   }
   
@@ -151,9 +147,6 @@ This continues until either:
 PID (Best suited to wideband sensors):
  
 */
-double PID_O2, PID_output, PID_AFRTarget;
-PID egoPID(&PID_O2, &PID_output, &PID_AFRTarget, configPage3.egoKP, configPage3.egoKI, configPage3.egoKD, REVERSE); //This is the PID object if that algorithm is used. Needs to be global as it maintains state outside of each function call
-
 byte correctionsAFRClosedLoop()
 {
   if( (configPage3.egoAlgorithm == 3) || (configPage3.egoType == 0)) { return 100; } //An egoAlgorithm value of 3 means NO CORRECTION, egoType of 0 means no O2 sensor
@@ -199,14 +192,6 @@ byte correctionsAFRClosedLoop()
       {
         //*************************************************************************************************************************************
         //PID algorithm
-        egoPID.SetOutputLimits((double)(-configPage3.egoLimit), (double)(configPage3.egoLimit)); //Set the limits again, just incase the user has changed them since the last loop. Note that these are sent to the PID library as (Eg:) -15 and +15
-        egoPID.SetTunings(configPage3.egoKP, configPage3.egoKI, configPage3.egoKD); //Set the PID values again, just incase the user has changed them since the last loop
-        PID_O2 = (double)(currentStatus.O2);
-        PID_AFRTarget = (double)(currentStatus.afrTarget);
-        
-        egoPID.Compute();
-        //currentStatus.egoCorrection = 100 + PID_output;
-        return (100 + PID_output);
       }
       
     }
