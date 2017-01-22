@@ -16,39 +16,67 @@ Flood clear mode etc.
 #include "corrections.h"
 #include "globals.h"
 
+long PID_O2, PID_output, PID_AFRTarget;
+PID egoPID(&PID_O2, &PID_output, &PID_AFRTarget, configPage3.egoKP, configPage3.egoKI, configPage3.egoKD, REVERSE); //This is the PID object if that algorithm is used. Needs to be global as it maintains state outside of each function call
+
+void initialiseCorrections()
+{
+  egoPID.SetMode(AUTOMATIC); //Turn O2 PID on
+  currentStatus.flexIgnCorrection = 0;
+}
+
 /*
 correctionsTotal() calls all the other corrections functions and combines their results.
 This is the only function that should be called from anywhere outside the file
 */
-byte correctionsTotal()
+byte correctionsFuel()
 {
-  int sumCorrections = 100;
+  unsigned long sumCorrections = 100;
+  byte activeCorrections = 0;
   byte result; //temporary variable to store the result of each corrections function
   
-  //As the 'normal' case will be for each function to return 100, we only perform the division operation if the returned result is not equal to that
+  //The values returned by each of the correction functions are multipled together and then divided back to give a single 0-255 value. 
   currentStatus.wueCorrection = correctionWUE();
-  //if (currentStatus.wueCorrection != 100) { sumCorrections = div((sumCorrections * currentStatus.wueCorrection), 100).quot; }
-  if (currentStatus.wueCorrection != 100) { sumCorrections = divs100(sumCorrections * currentStatus.wueCorrection); }
+  if (currentStatus.wueCorrection != 100) { sumCorrections = (sumCorrections * currentStatus.wueCorrection); activeCorrections++; }
+  
   result = correctionASE();
-  //if (result != 100) { sumCorrections = div((sumCorrections * result), 100).quot; }
-  if (result != 100) { sumCorrections = divs100(sumCorrections * result); }
+  if (result != 100) { sumCorrections = (sumCorrections * result); activeCorrections++; }
+  
   result = correctionCranking();
-  if (result != 100) { sumCorrections = div((sumCorrections * result), 100).quot; }
+  if (result != 100) { sumCorrections = (sumCorrections * result); activeCorrections++; }
+  if (activeCorrections == 3) { sumCorrections = sumCorrections / powint(100,activeCorrections); activeCorrections = 0; } // Need to check this to ensure that sumCorrections doesn't overflow. Can occur when the number of corrections is greater than 3 (Which is 100^4) as 100^5 can overflow
+  
   currentStatus.TAEamount = correctionAccel();
-  if (currentStatus.TAEamount != 100) { sumCorrections = div((sumCorrections * currentStatus.TAEamount), 100).quot; }
+  if (currentStatus.TAEamount != 100) { sumCorrections = (sumCorrections * currentStatus.TAEamount); activeCorrections++; }
+  if (activeCorrections == 3) { sumCorrections = sumCorrections / powint(100,activeCorrections); activeCorrections = 0; }
+  
   result = correctionFloodClear();
-  if (result != 100) { sumCorrections = div((sumCorrections * result), 100).quot; }
-  currentStatus.egoCorrection = correctionsAFRClosedLoop();
-  //if (currentStatus.egoCorrection != 100) { sumCorrections = div((sumCorrections * currentStatus.egoCorrection), 100).quot; }
-  if (currentStatus.egoCorrection != 100) { sumCorrections = divs100(sumCorrections * currentStatus.egoCorrection); }
-  currentStatus.batCorrection = correctionsBatVoltage();
-  //if (currentStatus.batCorrection != 100) { sumCorrections = div((sumCorrections * currentStatus.batCorrection), 100).quot; }
-  if (currentStatus.batCorrection != 100) { sumCorrections = divs100(sumCorrections * currentStatus.batCorrection); }
-  currentStatus.iatCorrection = correctionsIATDensity();
-  //if (currentStatus.iatCorrection != 100) { sumCorrections = div((sumCorrections * currentStatus.iatCorrection), 100).quot; }
-  if (currentStatus.iatCorrection != 100) { sumCorrections = divs100(sumCorrections * currentStatus.iatCorrection); }
-  currentStatus.launchCorrection = correctionsLaunch();
-  if (currentStatus.launchCorrection != 100) { sumCorrections = div((sumCorrections * currentStatus.launchCorrection), 100).quot; }
+  if (result != 100) { sumCorrections = (sumCorrections * result); activeCorrections++; }
+  if (activeCorrections == 3) { sumCorrections = sumCorrections / powint(100,activeCorrections); activeCorrections = 0; }
+  
+  currentStatus.egoCorrection = correctionAFRClosedLoop();
+  if (currentStatus.egoCorrection != 100) { sumCorrections = (sumCorrections * currentStatus.egoCorrection); activeCorrections++; }
+  if (activeCorrections == 3) { sumCorrections = sumCorrections / powint(100,activeCorrections); activeCorrections = 0; }
+  
+  currentStatus.batCorrection = correctionBatVoltage();
+  if (currentStatus.batCorrection != 100) { sumCorrections = (sumCorrections * currentStatus.batCorrection); activeCorrections++; }
+  if (activeCorrections == 3) { sumCorrections = sumCorrections / powint(100,activeCorrections); activeCorrections = 0; }
+  
+  currentStatus.iatCorrection = correctionIATDensity();
+  if (currentStatus.iatCorrection != 100) { sumCorrections = (sumCorrections * currentStatus.iatCorrection); activeCorrections++; }
+  if (activeCorrections == 3) { sumCorrections = sumCorrections / powint(100,activeCorrections); activeCorrections = 0; }
+
+  currentStatus.flexCorrection = correctionFlex();
+  if (currentStatus.flexCorrection != 100) { sumCorrections = (sumCorrections * currentStatus.flexCorrection); activeCorrections++; }
+  if (activeCorrections == 3) { sumCorrections = sumCorrections / powint(100,activeCorrections); activeCorrections = 0; }
+  
+  currentStatus.launchCorrection = correctionLaunch();
+  if (currentStatus.launchCorrection != 100) { sumCorrections = (sumCorrections * currentStatus.launchCorrection); activeCorrections++; }
+  
+  bitWrite(currentStatus.squirt, BIT_SQUIRT_DFCO, correctionDFCO());
+  if ( bitRead(currentStatus.squirt, BIT_SQUIRT_DFCO) ) { sumCorrections = 0; } 
+
+  sumCorrections = sumCorrections / powint(100,activeCorrections);
   
   if(sumCorrections > 255) { sumCorrections = 255; } //This is the maximum allowable increase
   return (byte)sumCorrections;
@@ -58,7 +86,7 @@ byte correctionsTotal()
 Warm Up Enrichment (WUE)
 Uses a 2D enrichment table (WUETable) where the X axis is engine temp and the Y axis is the amount of extra fuel to add
 */
-byte correctionWUE()
+static inline byte correctionWUE()
 {
   //Possibly reduce the frequency this runs at (Costs about 50 loops per second)
   if (currentStatus.coolant > (WUETable.axisX[9] - CALIBRATION_TEMPERATURE_OFFSET)) { BIT_CLEAR(currentStatus.engine, BIT_ENGINE_WARMUP); return 100; } //This prevents us doing the 2D lookup if we're already up to temp
@@ -70,7 +98,7 @@ byte correctionWUE()
 Cranking Enrichment
 Additional fuel % to be added when the engine is cranking
 */
-byte correctionCranking()
+static inline byte correctionCranking()
 {
   if ( BIT_CHECK(currentStatus.engine, BIT_ENGINE_CRANK) ) { return 100 + configPage1.crankingPct; }
   else { return 100; }
@@ -81,7 +109,7 @@ After Start Enrichment
 This is a short period (Usually <20 seconds) immediately after the engine first fires (But not when cranking)
 where an additional amount of fuel is added (Over and above the WUE amount)
 */
-byte correctionASE()
+static inline byte correctionASE()
 {
   //Two checks are requiredL:
   //1) Is the negine run time less than the configured ase time
@@ -101,7 +129,7 @@ TPS based acceleration enrichment
 Calculates the % change of the throttle over time (%/second) and performs a lookup based on this
 When the enrichment is turned on, it runs at that amount for a fixed period of time (taeTime)
 */
-byte correctionAccel()
+static inline byte correctionAccel()
 {
   //First, check whether the accel. enrichment is already running
   if( BIT_CHECK(currentStatus.engine, BIT_ENGINE_ACC) )
@@ -142,7 +170,7 @@ Simple check to see whether we are cranking with the TPS above the flood clear t
 This function always returns either 100 or 0
 */
 
-byte correctionFloodClear()
+static inline byte correctionFloodClear()
 {
   if(BIT_CHECK(currentStatus.engine, BIT_ENGINE_CRANK))
   {
@@ -160,7 +188,7 @@ byte correctionFloodClear()
 Battery Voltage correction
 Uses a 2D enrichment table (WUETable) where the X axis is engine temp and the Y axis is the amount of extra fuel to add
 */
-byte correctionsBatVoltage()
+static inline byte correctionBatVoltage()
 {
   if (currentStatus.battery10 > (injectorVCorrectionTable.axisX[5])) { return injectorVCorrectionTable.values[injectorVCorrectionTable.xSize-1]; } //This prevents us doing the 2D lookup if the voltage is above maximum 
   return table2D_getValue(&injectorVCorrectionTable, currentStatus.battery10);
@@ -170,7 +198,7 @@ byte correctionsBatVoltage()
 Simple temperature based corrections lookup based on the inlet air temperature. 
 This corrects for changes in air density from movement of the temperature 
 */
-byte correctionsIATDensity()
+static inline byte correctionIATDensity()
 {
   if ( (currentStatus.IAT + CALIBRATION_TEMPERATURE_OFFSET) > (IATDensityCorrectionTable.axisX[8])) { return IATDensityCorrectionTable.values[IATDensityCorrectionTable.xSize-1]; } //This prevents us doing the 2D lookup if the intake temp is above maximum 
   return table2D_getValue(&IATDensityCorrectionTable, currentStatus.IAT + CALIBRATION_TEMPERATURE_OFFSET); //currentStatus.IAT is the actual temperature, values in IATDensityCorrectionTable.axisX are temp+offset
@@ -180,10 +208,31 @@ byte correctionsIATDensity()
 Launch control has a setting to increase the fuel load to assist in bringing up boost
 This simple check applies the extra fuel if we're currently launching
 */
-byte correctionsLaunch()
+static inline byte correctionLaunch()
 {
-  if(configPage3.launchEnabled && currentStatus.launching) { return (100 + configPage3.lnchFuelAdd); }
+  if(currentStatus.launchingHard || currentStatus.launchingSoft) { return (100 + configPage3.lnchFuelAdd); }
   else { return 100; }
+}
+
+/*
+ * Returns true if decelleration fuel cutoff should be on, false if its off
+ */
+static inline bool correctionDFCO()
+{
+  if ( !configPage2.dfcoEnabled ) { return false; } //If the DFCO option isn't turned on, always return false (off)
+  if ( bitRead(currentStatus.squirt, BIT_SQUIRT_DFCO) ) { return ( currentStatus.RPM > ( configPage2.dfcoRPM * 10) ) && ( currentStatus.TPS < configPage2.dfcoTPSThresh ); }
+  else { return ( currentStatus.RPM > ( (configPage2.dfcoRPM * 10) + configPage2.dfcoHyster) ) && ( currentStatus.TPS < configPage2.dfcoTPSThresh ); }
+}
+
+/*
+ * Flex fuel adjustment to vary fuel based on ethanol content
+ * The amount of extra fuel required is a linear relationship based on the % of ethanol. 
+*/
+static inline byte correctionFlex()
+{
+  if(!configPage1.flexEnabled) { return 100; } //Check for flex being enabled
+  byte flexRange = configPage1.flexFuelHigh - configPage1.flexFuelLow;
+  return percentage(currentStatus.ethanolPct, flexRange) + 100;
 }
 
 /*
@@ -199,26 +248,25 @@ This continues until either:
 PID (Best suited to wideband sensors):
  
 */
-double PID_O2, PID_output, PID_AFRTarget;
-PID egoPID(&PID_O2, &PID_output, &PID_AFRTarget, configPage3.egoKP, configPage3.egoKI, configPage3.egoKD, REVERSE); //This is the PID object if that algorithm is used. Needs to be global as it maintains state outside of each function call
 
-byte correctionsAFRClosedLoop()
+static inline byte correctionAFRClosedLoop()
 {
-  if( (configPage3.egoAlgorithm == 3) || (configPage3.egoType == 0)) { return 100; } //An egoAlgorithm value of 3 means NO CORRECTION, egoType of 0 means no O2 sensor
+  if( (configPage3.egoType == 0)) { return 100; } //egoType of 0 means no O2 sensor
+
+  currentStatus.afrTarget = currentStatus.O2; //Catch all incase the below doesn't run. This prevents the Include AFR option from doing crazy things if the AFR target conditions aren't met. This value is changed again below if all conditions are met. 
   
   //Check the ignition count to see whether the next step is required
-  if( (ignitionCount & (configPage3.egoCount - 1)) == 1 ) //This is the equivalent of ( (ignitionCount % configPage3.egoCount) == 0 ) but without the expensive modulus operation. ie It results in True every <egoCount> ignition loops. Note that it only works for power of two vlaues for egoCount
+  //if( (ignitionCount & (configPage3.egoCount - 1)) == 1 ) //This is the equivalent of ( (ignitionCount % configPage3.egoCount) == 0 ) but without the expensive modulus operation. ie It results in True every <egoCount> ignition loops. Note that it only works for power of two vlaues for egoCount
   {
+    //Determine whether the Y axis of the AFR target table tshould be MAP (Speed-Density) or TPS (Alpha-N)
+    byte yValue;
+    if (configPage1.algorithm == 0) { yValue = currentStatus.MAP; }
+    else  { yValue = currentStatus.TPS; }
+    currentStatus.afrTarget = get3DTableValue(&afrTable, yValue, currentStatus.RPM); //Perform the target lookup
+  
     //Check all other requirements for closed loop adjustments
-    if( (currentStatus.coolant > configPage3.egoTemp) && (currentStatus.RPM > (unsigned int)(configPage3.egoRPM * 100)) && (currentStatus.TPS < configPage3.egoTPSMax) && (currentStatus.O2 < configPage3.ego_max) && (currentStatus.O2 > configPage3.ego_min) && (currentStatus.runSecs > configPage3.ego_sdelay) )
+    if( (currentStatus.coolant > (int)(configPage3.egoTemp - CALIBRATION_TEMPERATURE_OFFSET)) && (currentStatus.RPM > (unsigned int)(configPage3.egoRPM * 100)) && (currentStatus.TPS < configPage3.egoTPSMax) && (currentStatus.O2 < configPage3.ego_max) && (currentStatus.O2 > configPage3.ego_min) && (currentStatus.runSecs > configPage3.ego_sdelay) )
     {
-      //Determine whether the Y axis of the AFR target table tshould be MAP (Speed-Density) or TPS (Alpha-N)
-      byte yValue;
-      if (configPage1.algorithm == 0) { yValue = currentStatus.MAP; }
-      else  { yValue = currentStatus.TPS; }
-      
-      currentStatus.afrTarget = get3DTableValue(&afrTable, yValue, currentStatus.RPM); //Perform the target lookup
-      
       //Check which algorithm is used, simple or PID
       if (configPage3.egoAlgorithm == 0)
       {
@@ -247,18 +295,102 @@ byte correctionsAFRClosedLoop()
       {
         //*************************************************************************************************************************************
         //PID algorithm
-        egoPID.SetOutputLimits((double)(-configPage3.egoLimit), (double)(configPage3.egoLimit)); //Set the limits again, just incase the user has changed them since the last loop. Note that these are sent to the PID library as (Eg:) -15 and +15
+        egoPID.SetOutputLimits((long)(-configPage3.egoLimit), (long)(configPage3.egoLimit)); //Set the limits again, just incase the user has changed them since the last loop. Note that these are sent to the PID library as (Eg:) -15 and +15
         egoPID.SetTunings(configPage3.egoKP, configPage3.egoKI, configPage3.egoKD); //Set the PID values again, just incase the user has changed them since the last loop
-        PID_O2 = (double)(currentStatus.O2);
-        PID_AFRTarget = (double)(currentStatus.afrTarget);
+        PID_O2 = (long)(currentStatus.O2);
+        PID_AFRTarget = (long)(currentStatus.afrTarget);
         
         egoPID.Compute();
         //currentStatus.egoCorrection = 100 + PID_output;
         return (100 + PID_output);
       }
+      else { return 100; } // Occurs if the egoAlgorithm is set to 0 (No Correction)
       
     }
   }
   
   return 100; //Catch all (Includes when AFR target = current AFR
 }
+
+//******************************** IGNITION ADVANCE CORRECTIONS ********************************
+
+int8_t correctionsIgn(int8_t advance)
+{
+
+  advance = correctionFlexTiming(advance);
+  advance = correctionIATretard(advance);
+  advance = correctionSoftRevLimit(advance);
+  advance = correctionSoftLaunch(advance);
+  advance = correctionSoftFlatShift(advance);
+  //Fixed timing check must go last
+  advance = correctionFixedTiming(advance);
+  advance = correctionCrankingFixedTiming(advance); //This overrrides the regular fixed timing, must come last
+
+  return advance;
+}
+
+static inline int8_t correctionFixedTiming(int8_t advance)
+{
+  if (configPage2.FixAng != 0) { return configPage2.FixAng; } //Check whether the user has set a fixed timing angle
+  return advance;
+}
+
+static inline int8_t correctionCrankingFixedTiming(int8_t advance)
+{
+  if ( BIT_CHECK(currentStatus.engine, BIT_ENGINE_CRANK) ) { return configPage2.CrankAng; } //Use the fixed cranking ignition angle
+  return advance;
+}
+
+static inline int8_t correctionFlexTiming(int8_t advance)
+{
+  if(!configPage1.flexEnabled) { return advance; } //Check for flex being enabled
+  byte flexRange = configPage1.flexAdvHigh - configPage1.flexAdvLow;
+  
+  if (currentStatus.ethanolPct != 0) { currentStatus.flexIgnCorrection = percentage(currentStatus.ethanolPct, flexRange); }
+  else { currentStatus.flexIgnCorrection = 0; }
+  
+  return advance + currentStatus.flexIgnCorrection;
+}
+
+static inline int8_t correctionIATretard(int8_t advance)
+{
+  //Adjust the advance based on IAT. If the adjustment amount is greater than the current advance, just set advance to 0
+  byte advanceIATadjust = table2D_getValue(&IATRetardTable, currentStatus.IAT);
+  if (advanceIATadjust <= advance) { return (advance - advanceIATadjust); }
+  else { return 0; } 
+}
+
+static inline int8_t correctionSoftRevLimit(int8_t advance)
+{
+  BIT_CLEAR(currentStatus.spark, BIT_SPARK_SFTLIM);
+  if (currentStatus.RPM > ((unsigned int)(configPage2.SoftRevLim) * 100) ) { BIT_SET(currentStatus.spark, BIT_SPARK_SFTLIM); return configPage2.SoftLimRetard;  } //Softcut RPM limit (If we're above softcut limit, delay timing by configured number of degrees)
+  return advance;
+}
+
+static inline int8_t correctionSoftLaunch(int8_t advance)
+{
+  //SoftCut rev limit for 2-step launch control. 
+  if (configPage3.launchEnabled && clutchTrigger && (currentStatus.clutchEngagedRPM < ((unsigned int)(configPage3.flatSArm) * 100)) && (currentStatus.RPM > ((unsigned int)(configPage3.lnchSoftLim) * 100)) ) 
+  {
+    currentStatus.launchingSoft = true; 
+    BIT_SET(currentStatus.spark, BIT_SPARK_SLAUNCH);
+    return configPage3.lnchRetard;
+  } 
+
+  currentStatus.launchingSoft = false; 
+  BIT_CLEAR(currentStatus.spark, BIT_SPARK_SLAUNCH);
+  return advance; 
+}
+
+static inline int8_t correctionSoftFlatShift(int8_t advance)
+{
+  if(configPage3.flatSEnable && clutchTrigger && (currentStatus.clutchEngagedRPM > ((unsigned int)(configPage3.flatSArm) * 100)) && (currentStatus.RPM > (currentStatus.clutchEngagedRPM-configPage3.flatSSoftWin) ) ) 
+  { 
+    BIT_SET(currentStatus.spark2, BIT_SPARK2_FLATSS);
+    return configPage3.flatSRetard; 
+  }
+
+  BIT_CLEAR(currentStatus.spark2, BIT_SPARK2_FLATSS);
+  return advance;
+}
+

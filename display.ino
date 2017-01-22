@@ -6,8 +6,8 @@ A full copy of the license may be found in the projects root directory
 
 #include <SPI.h>
 #include <Wire.h>
-#include "libs/Adafruit_SSD1306/Adafruit_GFX.h"
-#include "libs/Adafruit_SSD1306/Adafruit_SSD1306.h"
+#include "src/Adafruit_SSD1306/Adafruit_GFX.h"
+#include "src/Adafruit_SSD1306/Adafruit_SSD1306.h"
 
 Adafruit_SSD1306 display(pinDisplayReset);
 
@@ -56,7 +56,7 @@ void updateDisplay()
     case 1:
       display.print("PW: ");
       display.setCursor(28,0);
-      display.print(currentStatus.PW);
+      display.print(currentStatus.PW1);
       break;
     case 2:
       display.print("Adv: ");
@@ -101,7 +101,7 @@ void updateDisplay()
     case 1:
       display.print("PW: ");
       display.setCursor(28,11);
-      display.print(currentStatus.PW);
+      display.print(currentStatus.PW1);
       break;
     case 2:
       display.print("Adv: ");

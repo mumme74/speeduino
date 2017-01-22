@@ -9,9 +9,14 @@
 #define afrSetPage   6//Config Page 3
 #define iacPage      7//Config Page 4
 #define boostvvtPage 8
+#define seqFuelPage  9
+
+#define packetSize   37
 
 byte currentPage = 1;//Not the same as the speeduino config page numbers
 boolean isMap = true;
+unsigned long requestCount = 0; //The number of times the A command has been issued
+
 const char pageTitles[] PROGMEM //This is being stored in the avr flash instead of SRAM which there is not very much of
   {
    "\nVolumetric Efficiancy Map\0"//This is an alternative to using a 2D array which would waste space because of the different lengths of the strings
@@ -20,11 +25,13 @@ const char pageTitles[] PROGMEM //This is being stored in the avr flash instead 
    "\nPage 2 Config\0"
    "\nAir/Fuel Ratio Map\0"
    "\nPage 3 Config\0"
-   "\nPage 4 Config"//No need to put a trailing null because it's the last string and the compliler does it for you.
+   "\nPage 4 Config\0"
+   "\nBoost Map\0"
+   "\nVVT Map"//No need to put a trailing null because it's the last string and the compliler does it for you.
   };
   
 void command();//This is the heart of the Command Line Interpeter.  All that needed to be done was to make it human readable.
-void sendValues();
+void sendValues(int packetlength, byte portnum);
 void receiveValue(int offset, byte newValue);
 void saveConfig();
 void sendPage(bool useChar);
